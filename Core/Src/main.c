@@ -125,6 +125,31 @@ static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
+
+// Helper to set buffer based on a 16-bit value
+void setBufferFromValue(uint8_t* buf, uint16_t value) {
+    buf[0] = (value >> 8) & 0xFF;
+    buf[1] = value & 0xFF;
+}
+// Read I2C memory and return the 16-bit value
+uint16_t readI2CRegister(uint16_t memAddr) {
+    uint8_t buf[2];
+    HAL_StatusTypeDef hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, memAddr, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+    return ((uint16_t)buf[0] << 8) | buf[1];
+}
+// Generic I2C write function
+HAL_StatusTypeDef writeI2CMem(uint8_t* buf, uint16_t memAddr) {
+    return HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, memAddr, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+}
+// Function to write a value to multiple sequential registers
+void writeToMultipleRegisters(uint16_t value, uint16_t startAddress, uint16_t endAddress) {
+    uint8_t buf[2];
+    setBufferFromValue(buf, value);
+    for (uint16_t addr = startAddress; addr <= endAddress; ++addr) {
+        HAL_StatusTypeDef hal_status = writeI2CMem(buf, addr);
+    }
+}
+
 int32_t Read_DataXbits(uint8_t msb_addr, uint8_t lsb_addr){
 	int32_t f_sensor;
 
@@ -155,12 +180,11 @@ void calibrate(){
 			f_sensor1_baseline += Read_DataXbits(DATA1_MSB, DATA1_LSB);
 			f_sensor2_baseline += Read_DataXbits(DATA2_MSB, DATA2_LSB);
 			f_sensor3_baseline += Read_DataXbits(DATA3_MSB, DATA3_LSB);
-			// HAL_Delay(10); // For how long is the controller on before the readings are needed???.
 
 			// Read the "STATUS" address to de-assert the interrupt on the LDC side.
 			data_ready = 0;
-			hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, STATUS, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-			status_reg_read = (uint16_t)buf[0] << 8 | (buf[1]);
+
+			status_reg_read = readI2CRegister(STATUS);
 
 			iterations--;
 		}
@@ -179,7 +203,7 @@ double correct_neg_f(double f){
 		return f;
 }
 
-void position_decoder(double f0, double f1, double f2, double f3, int direction){
+void position_decoder(double f0,double f1,double f2,double f3){
 
 	// The right-most case is not resolved yet, when the metal goes beyond the
 	// last coil, and the values starts decreasing...
@@ -254,22 +278,12 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-
   /*
    * LDC config
    *
    * Each channel current drive is set independently between 16 µA and 1.6 mA by setting the corresponding IDRIVEx register field
    *
    * */
-  /*
-  union reg{
-	  struct {
-		  uint8_t err : 1;
-		  uint
-	  } flags;
-	  uint16_t byte;
-  };
-  */
 
   /* Mux Config register configuration */
   uint16_t AUTOSCAN_EN = 0b1 << 15;
@@ -283,49 +297,28 @@ int main(void)
   buf[0] = (mux_config_reg >> 8) & 0xFF;
   buf[1] = mux_config_reg & 0xFF;
   // Send the buffer over
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, MUX_CONFIG_ADDR, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+  hal_status = writeI2CMem(buf, MUX_CONFIG_ADDR);
 
   /* Resolution configuration */
   uint16_t max_res = 0xFFFF;
-  buf[0] = (max_res >> 8) & 0xFF;
-  buf[1] = max_res & 0xFF;
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, RCOUNT0, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, RCOUNT1, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, RCOUNT2, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, RCOUNT3, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-
+  writeToMultipleRegisters(max_res, RCOUNT0, RCOUNT3); // Max Resolution
 
   /* Setting the Settling Time */
   uint16_t settling_time = 0x0014;
-  buf[0] = (settling_time >> 8) & 0xFF;
-  buf[1] = settling_time & 0xFF;
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, SETTLECOUNT0, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, SETTLECOUNT1, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, SETTLECOUNT2, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, SETTLECOUNT3, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+  writeToMultipleRegisters(settling_time, SETTLECOUNT0, SETTLECOUNT3); // Setting the Settling Time
 
   /* CLOCK_DIVIDERS configuration */
   uint16_t clock_divider = 0x1001;
-  buf[0] = (clock_divider >> 8) & 0xFF;
-  buf[1] = clock_divider & 0xFF;
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, CLOCK_DIVIDERS0, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, CLOCK_DIVIDERS1, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, CLOCK_DIVIDERS2, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, CLOCK_DIVIDERS3, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+
+  writeToMultipleRegisters(clock_divider, CLOCK_DIVIDERS0, CLOCK_DIVIDERS3); // CLOCK_DIVIDERS configuration
 
   /* DRIVE CURRENT configuration */
   uint16_t IDRIVE = 0b11011 << 11;
   uint16_t INIT_IDRIVE = 0b00000 << 6;
   uint16_t DR_RESERVED = 0b000000 << 0;
-
   uint16_t drive_cur_reg = drive_cur_reg = IDRIVE | INIT_IDRIVE | DR_RESERVED;
 
-  buf[0] = (drive_cur_reg >> 8) & 0xFF;
-  buf[1] = drive_cur_reg & 0xFF;
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, DRIVE_CURRENT0, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, DRIVE_CURRENT1, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, DRIVE_CURRENT2, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, DRIVE_CURRENT3, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+  writeToMultipleRegisters(drive_cur_reg, DRIVE_CURRENT0, DRIVE_CURRENT3); // DRIVE CURRENT configuration
 
   /* Config register configuration */
   uint16_t SLEEP_MODE_EN = 0b1 << 13;
@@ -333,10 +326,7 @@ int main(void)
   uint16_t SENSOR_ACTIVATE_SEL = 0b1 << 11;
 
   // read register
-  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, CONFIG_ADDR, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  if (hal_status == HAL_OK) {
-	  config_reg = (uint16_t)buf[0] << 8 | (buf[1]);
-  } else {}
+  config_reg = readI2CRegister(CONFIG_ADDR);
   // Store it in the buffer for transmission
   CLEAR_BIT(config_reg, SENSOR_ACTIVATE_SEL);
   CLEAR_BIT(config_reg, SLEEP_MODE_EN);
@@ -344,15 +334,15 @@ int main(void)
 
   buf[0] = (config_reg >> 8) & 0xFF;
   buf[1] = config_reg & 0xFF;
-
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, CONFIG_ADDR, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+  hal_status = writeI2CMem(buf, CONFIG_ADDR);
 
   /* Interrupt Setup */
   uint16_t DRDY_2INT = 0b1 << 0;
   uint16_t error_config_reg = DRDY_2INT;
   buf[0] = (error_config_reg >> 8) & 0xFF;
   buf[1] = error_config_reg & 0xFF;
-  hal_status = HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, ERROR_CONFIG, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+
+  hal_status = writeI2CMem(buf, ERROR_CONFIG);
 
   /* USER CODE END 2 */
 
@@ -360,21 +350,14 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 
   /* Read registers before looping */
-  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, MUX_CONFIG_ADDR, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  mux_config_reg = (uint16_t)buf[0] << 8 | (buf[1]);
-  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, CONFIG_ADDR, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  config_reg = (uint16_t)buf[0] << 8 | (buf[1]);
-  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, RCOUNT0, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  rcountX = (uint16_t)buf[0] << 8 | (buf[1]);
-  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, CLOCK_DIVIDERS0, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  clock_dividerX = (uint16_t)buf[0] << 8 | (buf[1]);
-  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, DRIVE_CURRENT0, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  drive_currentX = (uint16_t)buf[0] << 8 | (buf[1]);
+  mux_config_reg = readI2CRegister(MUX_CONFIG_ADDR);
+  config_reg = readI2CRegister(CONFIG_ADDR);
+  rcountX = readI2CRegister(RCOUNT0);
+  clock_dividerX = readI2CRegister(CLOCK_DIVIDERS0);
+  drive_currentX = readI2CRegister(DRIVE_CURRENT0);
 
-  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, STATUS, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  status_reg_read = (uint16_t)buf[0] << 8 | (buf[1]);
-  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, ERROR_CONFIG, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-  error_config_read = (uint16_t)buf[0] << 8 | (buf[1]);
+  status_reg_read = readI2CRegister(STATUS);
+  error_config_read = readI2CRegister(ERROR_CONFIG);
 
   calibrate();
 
@@ -395,15 +378,12 @@ int main(void)
 		  f_sensor2 = Read_DataXbits(DATA2_MSB, DATA2_LSB) - (int32_t)f_sensor2_baseline;
 		  f_sensor3 = Read_DataXbits(DATA3_MSB, DATA3_LSB) - (int32_t)f_sensor3_baseline;
 
-		  // Division (direct floating point div not working)
 		  f0 = f_sensor0/400.0;
 		  f1 = f_sensor1/400.0;
 		  f2 = f_sensor2/400.0;
 		  f3 = f_sensor3/400.0;
 
-		  int direction = -1; // -1=>left, 1=>right
-		  // region identification.
-		  position_decoder(f0,f1,f2,f3,direction);
+		  position_decoder(f0,f1,f2,f3);
 	  }
 
     /* USER CODE END WHILE */
