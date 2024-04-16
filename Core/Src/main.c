@@ -103,6 +103,8 @@ double f1 = 0.0;
 double f2 = 0.0;
 double f3 = 0.0;
 float current_position = 0.0;
+float max_position = 0.0;
+uint32_t duty_cycle = 0;
 
 int changes = 0;
 
@@ -213,27 +215,26 @@ void position_decoder(double f0,double f1,double f2,double f3){
 	double left_mid = correct_neg_f(f2);
 	double left_most = correct_neg_f(f0);
 
-	// Differences in coils (in mm) as measured on the eagle PCB.
-	float p0=0.0, p1=0+21.0, p2=0+21+21.0, p3=0+21+21+20.0;
+	double right_edge = 0;
+	double left_edge = 0;
 
-	double totalWeight = right_most + right_mid + left_mid + left_most;
+	// Differences in coils (in mm) as measured on the eagle PCB.
+	float p_min = 0.0, p0=10.0, p1=10+21.0, p2=0+21+21.0, p3=10+21+21+20.0, p_max=10+21+21+20.0+10;
+	max_position = p_max;
+
+	double totalWeight =right_edge + right_most + right_mid + left_mid + left_most + left_edge;
 	if (totalWeight == 0)
 		totalWeight = 1;
 
-	current_position = (right_most * p0 + right_mid * p1 + left_mid * p2 + left_most * p3) / totalWeight;
+	current_position = (right_edge*p_max + right_most*p0 + right_mid*p1 + left_mid*p2 + left_most*p3 + left_edge*p_min) / totalWeight;
+	set_duty_cycle();
 }
 
-void set_duty_cycle(int regn){
+void set_duty_cycle(){
 
-	if(regn == 0){
-		TIM1->CCR1 = 25*10;
-	}else if(regn == 1){
-		TIM1->CCR1 = 50*10;
-	}else if(regn == 2){
-		TIM1->CCR1 = 100*10;
-	}else{
-		TIM1->CCR1 = 0;
-	}
+	duty_cycle = (current_position/max_position)*100;
+
+	TIM1->CCR1 = duty_cycle*10;
 
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 }
@@ -364,9 +365,7 @@ int main(void)
   while (1)
   {
 	  __NOP();
-	  __NOP();
 	  if(data_ready){
-		  __NOP();
 		  __NOP();
 		  // Read "STATUS" to de-assert the interrupt
 		  data_ready = 0;
