@@ -219,20 +219,23 @@ void position_decoder(double f0,double f1,double f2,double f3){
 	double left_edge = 0;
 
 	// Differences in coils (in mm) as measured on the eagle PCB.
-	float p_min = 0.0, p0=10.0, p1=10+21.0, p2=0+21+21.0, p3=10+21+21+20.0, p_max=10+21+21+20.0+10;
-	max_position = p_max;
+	float p0=0.0, p1=0+21.0, p2=0+21+21.0, p3=0+21+21+20.0;
+	max_position = p3;
 
-	double totalWeight =right_edge + right_most + right_mid + left_mid + left_most + left_edge;
+	double totalWeight =right_most + right_mid + left_mid + left_most;
 	if (totalWeight == 0)
-		totalWeight = 1;
+		totalWeight = 1;  // Prevent a div by ZERO
 
-	current_position = (right_edge*p_max + right_most*p0 + right_mid*p1 + left_mid*p2 + left_most*p3 + left_edge*p_min) / totalWeight;
+	current_position = (right_most*p0 + right_mid*p1 + left_mid*p2 + left_most*p3) / totalWeight;
 	set_duty_cycle();
 }
 
 void set_duty_cycle(){
 
 	duty_cycle = (current_position/max_position)*100;
+
+	if(duty_cycle > 100)
+		duty_cycle = 100;
 
 	TIM1->CCR1 = duty_cycle*10;
 
@@ -245,6 +248,31 @@ void set_duty_cycle(){
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+// TESTING CODE
+#define MAX_DATA_POINTS 200
+struct SensorData {
+    uint32_t timestamp;
+    uint16_t out_duty_cycle;
+    float target_position;
+};
+
+struct SensorData sensor_data[MAX_DATA_POINTS];
+uint16_t data_index = 0;
+
+void collect_data(uint32_t timestamp) {
+    if (data_index < MAX_DATA_POINTS) {
+        sensor_data[data_index].timestamp = timestamp;
+        sensor_data[data_index].out_duty_cycle = duty_cycle;
+        sensor_data[data_index].target_position = current_position;
+        data_index++;
+    }
+}
+
+int enough_samples(){
+	return (data_index >= MAX_DATA_POINTS);
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -254,6 +282,9 @@ void set_duty_cycle(){
 int main(void)
 {
   /* USER CODE BEGIN 1 */
+
+	// TESTING CODE
+
 
   /* USER CODE END 1 */
 
@@ -366,7 +397,6 @@ int main(void)
   {
 	  __NOP();
 	  if(data_ready){
-		  __NOP();
 		  // Read "STATUS" to de-assert the interrupt
 		  data_ready = 0;
 		  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, STATUS, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
@@ -383,12 +413,24 @@ int main(void)
 		  f3 = f_sensor3/400.0;
 
 		  position_decoder(f0,f1,f2,f3);
-	  }
 
+		  // TESTING CODE
+	      uint32_t current_time = HAL_GetTick();
+	      collect_data(current_time);
+	  }
+	  if(enough_samples()){
+		  while(1){
+			  __NOP();
+		  }
+		  break;
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
+
+  // export_data();
+
   /* USER CODE END 3 */
 }
 
