@@ -102,11 +102,21 @@ double f0 = 0.0;
 double f1 = 0.0;
 double f2 = 0.0;
 double f3 = 0.0;
-float current_position = 0.0;
+double freq_sum = 0.0;
+
+double current_position = 0.0;
+float corrected_cur_pos = 0;
+float section_1_threshold = 19.0;
+float section_2_threshold = 39.3;
+
 float max_position = 0.0;
 uint32_t duty_cycle = 0;
 
-int changes = 0;
+enum PistonDirection {
+	TowardsMCU = -1,
+	AwayFromMCU = 1
+};
+
 
 static int data_ready = 0;
 
@@ -204,7 +214,33 @@ double correct_neg_f(double f){
 	else
 		return f;
 }
+// Define the polynomial functions
+double section_1_poln(double x) {
+    return 0.000152012 * x * x * x * x * x
+           - 0.00745952 * x * x * x * x
+           + 0.1386879 * x * x * x
+           - 1.2114062 * x * x
+           + 5.5180193 * x
+           - 5.1243179;
+}
 
+double section_2_poln(double x) {
+    return 0.000153428 * x * x * x * x * x
+           - 0.022352 * x * x * x * x
+           + 1.289149 * x * x * x
+           - 36.796475 * x * x
+           + 520.31012 * x
+           - 2893.7671;
+}
+
+double section_3_poln(double x) {
+    return 0.00017577 * x * x * x * x * x
+           - 0.04326238 * x * x * x * x
+           + 4.2515465 * x * x * x
+           - 208.51761 * x * x
+           + 5104.0767 * x
+           - 49840.312;
+}
 void position_decoder(double f0,double f1,double f2,double f3){
 
 	// The right-most case is not resolved yet, when the metal goes beyond the
@@ -219,23 +255,37 @@ void position_decoder(double f0,double f1,double f2,double f3){
 	double left_edge = 0;
 
 	// Differences in coils (in mm) as measured on the eagle PCB.
-	float p0=0.0, p1=0+21.0, p2=0+21+21.0, p3=0+21+21+20.0;
+	float p0=0.0, p1=0+20.0, p2=0+20+20.0, p3=0+20+20+20.0;
 	max_position = p3;
 
-	double totalWeight =right_most + right_mid + left_mid + left_most;
-	if (totalWeight == 0)
-		totalWeight = 1;  // Prevent a div by ZERO
+	double total_freq =right_most + right_mid + left_mid + left_most;
 
-	current_position = (right_most*p0 + right_mid*p1 + left_mid*p2 + left_most*p3) / totalWeight;
+	freq_sum += total_freq;
+
+	if (total_freq == 0)
+		total_freq = 1;  // Prevent a div by ZERO
+
+	current_position = (right_most*p0 + right_mid*p1 + left_mid*p2 + left_most*p3) / total_freq;
+
+	if(current_position < section_1_threshold){
+		corrected_cur_pos = section_1_poln(current_position);
+	} else if(current_position < section_2_threshold){
+		corrected_cur_pos = section_2_poln(current_position);
+	} else {
+		corrected_cur_pos = section_3_poln(current_position);
+	}
+
 	set_duty_cycle();
 }
 
 void set_duty_cycle(){
 
-	duty_cycle = (current_position/max_position)*100;
+	duty_cycle = (corrected_cur_pos/max_position)*100;
 
 	if(duty_cycle > 100)
 		duty_cycle = 100;
+	if(duty_cycle < 0)
+		duty_cycle = 0;
 
 	TIM1->CCR1 = duty_cycle*10;
 
@@ -254,6 +304,7 @@ struct SensorData {
     uint32_t timestamp;
     uint16_t out_duty_cycle;
     float target_position;
+    double f_isum;
 };
 
 struct SensorData sensor_data[MAX_DATA_POINTS];
@@ -262,8 +313,9 @@ uint16_t data_index = 0;
 void collect_data(uint32_t timestamp) {
     if (data_index < MAX_DATA_POINTS) {
         sensor_data[data_index].timestamp = timestamp;
-        sensor_data[data_index].out_duty_cycle = duty_cycle;
-        sensor_data[data_index].target_position = current_position;
+        sensor_data[data_index].out_duty_cycle = current_position;
+        sensor_data[data_index].target_position = corrected_cur_pos;
+        sensor_data[data_index].f_isum = freq_sum/1000;
         data_index++;
     }
 }
@@ -418,12 +470,14 @@ int main(void)
 	      uint32_t current_time = HAL_GetTick();
 	      collect_data(current_time);
 	  }
-	  if(enough_samples()){
-		  while(1){
-			  __NOP();
-		  }
-		  break;
-	  }
+
+//	  if(enough_samples()){
+//		  while(1){
+//			  __NOP();
+//		  }
+//		  // break;
+//	  }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
