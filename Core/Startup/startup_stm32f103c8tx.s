@@ -59,7 +59,7 @@ defined in linker script */
   .weak Reset_Handler
   .type Reset_Handler, %function
 Reset_Handler:
-
+  ldr sp, =_estack
 /* Call the clock system initialization function.*/
     bl  SystemInit
 

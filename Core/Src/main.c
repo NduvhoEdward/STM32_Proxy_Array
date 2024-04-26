@@ -110,7 +110,7 @@ float section_1_threshold = 19.0;
 float section_2_threshold = 39.3;
 
 float max_position = 0.0;
-uint32_t duty_cycle = 0;
+float duty_cycle = 0;
 
 enum PistonDirection {
 	TowardsMCU = -1,
@@ -137,6 +137,7 @@ static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
+void set_duty_cycle();
 
 // Helper to set buffer based on a 16-bit value
 void setBufferFromValue(uint8_t* buf, uint16_t value) {
@@ -162,20 +163,35 @@ void writeToMultipleRegisters(uint16_t value, uint16_t startAddress, uint16_t en
     }
 }
 
+
 int32_t Read_DataXbits(uint8_t msb_addr, uint8_t lsb_addr){
 	int32_t f_sensor;
-
+	union{
+		uint8_t error;
+		struct{
+			unsigned amp :1;
+			unsigned wd :1;
+			unsigned or :1;
+			unsigned ur :1;
+		} flags;
+	} u_error;
 	hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, msb_addr, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
 	if (hal_status == HAL_OK) {
+
 	  f_sensor = (int32_t)buf[0] << 24 | (int32_t)buf[1] << 16;
+
 	} else {read_error = 1;}
 
 	hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, lsb_addr, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
 	if (hal_status == HAL_OK) {
 		f_sensor |= (int32_t)buf[0] << 8 | (int32_t)buf[1] << 0;
 	} else {read_error = 1;}
+	u_error.error = (f_sensor & 0xf0000000) >> 28;
 	f_sensor &= 0x0FFFFFFF;  // Masking out the error bits
 
+	if(u_error.error){
+		__NOP();
+	}
 	return f_sensor;
 }
 
@@ -280,16 +296,15 @@ void position_decoder(double f0,double f1,double f2,double f3){
 
 void set_duty_cycle(){
 
-	duty_cycle = (corrected_cur_pos/max_position)*100;
+	duty_cycle = (corrected_cur_pos/max_position);
 
-	if(duty_cycle > 100)
-		duty_cycle = 100;
-	if(duty_cycle < 0)
-		duty_cycle = 0;
+	if(duty_cycle > 1.0f)
+		duty_cycle = 1.0f;
+	if(duty_cycle < 0.0f)
+		duty_cycle = 0.0f;
 
-	TIM1->CCR1 = duty_cycle*10;
-
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	TIM1->CCR1 = duty_cycle * (TIM1->ARR);
+	TIM2->CCR1 = duty_cycle * (TIM2->ARR);
 }
 
 
@@ -444,6 +459,8 @@ int main(void)
   error_config_read = readI2CRegister(ERROR_CONFIG);
 
   calibrate();
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
   while (1)
   {
@@ -515,7 +532,7 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
@@ -540,7 +557,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 400000;
+  hi2c1.Init.ClockSpeed = 100000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
@@ -581,7 +598,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 800;
+  htim1.Init.Period = 799;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
@@ -654,7 +671,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 65535;
+  htim2.Init.Period = 799;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
