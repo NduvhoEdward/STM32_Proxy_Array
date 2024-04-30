@@ -303,8 +303,8 @@ void set_duty_cycle(){
 	if(duty_cycle < 0.0f)
 		duty_cycle = 0.0f;
 
-	TIM1->CCR1 = duty_cycle * (TIM1->ARR);
-	TIM2->CCR1 = duty_cycle * (TIM2->ARR);
+	TIM1->CCR1 = duty_cycle * (TIM1->ARR); // To the op-amp
+	TIM2->CCR1 = duty_cycle * (TIM2->ARR); // To the
 }
 
 
@@ -476,10 +476,10 @@ int main(void)
 		  f_sensor2 = Read_DataXbits(DATA2_MSB, DATA2_LSB) - (int32_t)f_sensor2_baseline;
 		  f_sensor3 = Read_DataXbits(DATA3_MSB, DATA3_LSB) - (int32_t)f_sensor3_baseline;
 
-		  f0 = f_sensor0/400.0;
-		  f1 = f_sensor1/400.0;
-		  f2 = f_sensor2/400.0;
-		  f3 = f_sensor3/400.0;
+		  f0 = f_sensor0;
+		  f1 = f_sensor1;
+		  f2 = f_sensor2;
+		  f3 = f_sensor3;
 
 		  position_decoder(f0,f1,f2,f3);
 
