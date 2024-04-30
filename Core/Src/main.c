@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2024 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2024 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -112,11 +112,7 @@ float section_2_threshold = 39.3;
 float max_position = 0.0;
 float duty_cycle = 0;
 
-enum PistonDirection {
-	TowardsMCU = -1,
-	AwayFromMCU = 1
-};
-
+enum PistonDirection { TowardsMCU = -1, AwayFromMCU = 1 };
 
 static int data_ready = 0;
 
@@ -141,172 +137,162 @@ void set_duty_cycle();
 
 // Helper to set buffer based on a 16-bit value
 void setBufferFromValue(uint8_t* buf, uint16_t value) {
-    buf[0] = (value >> 8) & 0xFF;
-    buf[1] = value & 0xFF;
+  buf[0] = (value >> 8) & 0xFF;
+  buf[1] = value & 0xFF;
 }
 // Read I2C memory and return the 16-bit value
 uint16_t readI2CRegister(uint16_t memAddr) {
-    uint8_t buf[2];
-    HAL_StatusTypeDef hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, memAddr, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-    return ((uint16_t)buf[0] << 8) | buf[1];
+  uint8_t buf[2];
+  HAL_StatusTypeDef hal_status =
+      HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, memAddr, I2C_MEMADD_SIZE_8BIT, buf,
+                       2, HAL_MAX_DELAY);
+  return ((uint16_t)buf[0] << 8) | buf[1];
 }
 // Generic I2C write function
 HAL_StatusTypeDef writeI2CMem(uint8_t* buf, uint16_t memAddr) {
-    return HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, memAddr, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+  return HAL_I2C_Mem_Write(&hi2c1, LDC_I2C_ADDR, memAddr, I2C_MEMADD_SIZE_8BIT,
+                           buf, 2, HAL_MAX_DELAY);
 }
 // Function to write a value to multiple sequential registers
-void writeToMultipleRegisters(uint16_t value, uint16_t startAddress, uint16_t endAddress) {
-    uint8_t buf[2];
-    setBufferFromValue(buf, value);
-    for (uint16_t addr = startAddress; addr <= endAddress; ++addr) {
-        HAL_StatusTypeDef hal_status = writeI2CMem(buf, addr);
+void writeToMultipleRegisters(uint16_t value, uint16_t startAddress,
+                              uint16_t endAddress) {
+  uint8_t buf[2];
+  setBufferFromValue(buf, value);
+  for (uint16_t addr = startAddress; addr <= endAddress; ++addr) {
+    HAL_StatusTypeDef hal_status = writeI2CMem(buf, addr);
+  }
+}
+
+int32_t Read_DataXbits(uint8_t msb_addr, uint8_t lsb_addr) {
+  int32_t f_sensor;
+  union {
+    uint8_t error;
+    struct {
+      unsigned amp : 1;
+      unsigned wd : 1;
+      unsigned or : 1;
+      unsigned ur : 1;
+    } flags;
+  } u_error;
+  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, msb_addr,
+                                I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+  if (hal_status == HAL_OK) {
+    f_sensor = (int32_t)buf[0] << 24 | (int32_t)buf[1] << 16;
+
+  } else {
+    read_error = 1;
+  }
+
+  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, lsb_addr,
+                                I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
+  if (hal_status == HAL_OK) {
+    f_sensor |= (int32_t)buf[0] << 8 | (int32_t)buf[1] << 0;
+  } else {
+    read_error = 1;
+  }
+  u_error.error = (f_sensor & 0xf0000000) >> 28;
+  f_sensor &= 0x0FFFFFFF;  // Masking out the error bits
+
+  if (u_error.error) {
+    __NOP();
+  }
+  return f_sensor;
+}
+
+void calibrate() {
+  int baselineReadings = 50;
+  int iterations = baselineReadings;
+
+  while (iterations > 0) {
+    __NOP();
+    if (data_ready) {
+      f_sensor0_baseline += Read_DataXbits(DATA0_MSB, DATA0_LSB);
+      f_sensor1_baseline += Read_DataXbits(DATA1_MSB, DATA1_LSB);
+      f_sensor2_baseline += Read_DataXbits(DATA2_MSB, DATA2_LSB);
+      f_sensor3_baseline += Read_DataXbits(DATA3_MSB, DATA3_LSB);
+
+      // Read the "STATUS" address to de-assert the interrupt on the LDC side.
+      data_ready = 0;
+
+      status_reg_read = readI2CRegister(STATUS);
+
+      iterations--;
     }
+  }
+
+  f_sensor0_baseline /= baselineReadings;
+  f_sensor1_baseline /= baselineReadings;
+  f_sensor2_baseline /= baselineReadings;
+  f_sensor3_baseline /= baselineReadings;
 }
 
-
-int32_t Read_DataXbits(uint8_t msb_addr, uint8_t lsb_addr){
-	int32_t f_sensor;
-	union{
-		uint8_t error;
-		struct{
-			unsigned amp :1;
-			unsigned wd :1;
-			unsigned or :1;
-			unsigned ur :1;
-		} flags;
-	} u_error;
-	hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, msb_addr, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-	if (hal_status == HAL_OK) {
-
-	  f_sensor = (int32_t)buf[0] << 24 | (int32_t)buf[1] << 16;
-
-	} else {read_error = 1;}
-
-	hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, lsb_addr, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-	if (hal_status == HAL_OK) {
-		f_sensor |= (int32_t)buf[0] << 8 | (int32_t)buf[1] << 0;
-	} else {read_error = 1;}
-	u_error.error = (f_sensor & 0xf0000000) >> 28;
-	f_sensor &= 0x0FFFFFFF;  // Masking out the error bits
-
-	if(u_error.error){
-		__NOP();
-	}
-	return f_sensor;
-}
-
-void calibrate(){
-
-	int baselineReadings = 50;
-	int iterations = baselineReadings;
-
-	while(iterations>0){
-		__NOP();
-		if(data_ready){
-
-			f_sensor0_baseline += Read_DataXbits(DATA0_MSB, DATA0_LSB);
-			f_sensor1_baseline += Read_DataXbits(DATA1_MSB, DATA1_LSB);
-			f_sensor2_baseline += Read_DataXbits(DATA2_MSB, DATA2_LSB);
-			f_sensor3_baseline += Read_DataXbits(DATA3_MSB, DATA3_LSB);
-
-			// Read the "STATUS" address to de-assert the interrupt on the LDC side.
-			data_ready = 0;
-
-			status_reg_read = readI2CRegister(STATUS);
-
-			iterations--;
-		}
-	}
-
-	f_sensor0_baseline /= baselineReadings;
-	f_sensor1_baseline /= baselineReadings;
-	f_sensor2_baseline /= baselineReadings;
-	f_sensor3_baseline /= baselineReadings;
-}
-
-double correct_neg_f(double f){
-	if(f<0)
-		return 0;
-	else
-		return f;
+double correct_neg_f(double f) {
+  if (f < 0)
+    return 0;
+  else
+    return f;
 }
 // Define the polynomial functions
 double section_1_poln(double x) {
-    return 0.000152012 * x * x * x * x * x
-           - 0.00745952 * x * x * x * x
-           + 0.1386879 * x * x * x
-           - 1.2114062 * x * x
-           + 5.5180193 * x
-           - 5.1243179;
+  return 0.000152012 * x * x * x * x * x - 0.00745952 * x * x * x * x +
+         0.1386879 * x * x * x - 1.2114062 * x * x + 5.5180193 * x - 5.1243179;
 }
 
 double section_2_poln(double x) {
-    return 0.000153428 * x * x * x * x * x
-           - 0.022352 * x * x * x * x
-           + 1.289149 * x * x * x
-           - 36.796475 * x * x
-           + 520.31012 * x
-           - 2893.7671;
+  return 0.000153428 * x * x * x * x * x - 0.022352 * x * x * x * x +
+         1.289149 * x * x * x - 36.796475 * x * x + 520.31012 * x - 2893.7671;
 }
 
 double section_3_poln(double x) {
-    return 0.00017577 * x * x * x * x * x
-           - 0.04326238 * x * x * x * x
-           + 4.2515465 * x * x * x
-           - 208.51761 * x * x
-           + 5104.0767 * x
-           - 49840.312;
+  return 0.00017577 * x * x * x * x * x - 0.04326238 * x * x * x * x +
+         4.2515465 * x * x * x - 208.51761 * x * x + 5104.0767 * x - 49840.312;
 }
-void position_decoder(double f0,double f1,double f2,double f3){
+void position_decoder(double f0, double f1, double f2, double f3) {
+  // The right-most case is not resolved yet, when the metal goes beyond the
+  // last coil, and the values starts decreasing...
 
-	// The right-most case is not resolved yet, when the metal goes beyond the
-	// last coil, and the values starts decreasing...
+  double right_most = correct_neg_f(f3);
+  double right_mid = correct_neg_f(f1);
+  double left_mid = correct_neg_f(f2);
+  double left_most = correct_neg_f(f0);
 
-	double right_most = correct_neg_f(f3);
-	double right_mid = correct_neg_f(f1);
-	double left_mid = correct_neg_f(f2);
-	double left_most = correct_neg_f(f0);
+  double right_edge = 0;
+  double left_edge = 0;
 
-	double right_edge = 0;
-	double left_edge = 0;
+  // Differences in coils (in mm) as measured on the eagle PCB.
+  float p0 = 0.0, p1 = 0 + 20.0, p2 = 0 + 20 + 20.0, p3 = 0 + 20 + 20 + 20.0;
+  max_position = p3;
 
-	// Differences in coils (in mm) as measured on the eagle PCB.
-	float p0=0.0, p1=0+20.0, p2=0+20+20.0, p3=0+20+20+20.0;
-	max_position = p3;
+  double total_freq = right_most + right_mid + left_mid + left_most;
 
-	double total_freq =right_most + right_mid + left_mid + left_most;
+  freq_sum += total_freq;
 
-	freq_sum += total_freq;
+  if (total_freq == 0) total_freq = 1;  // Prevent a div by ZERO
 
-	if (total_freq == 0)
-		total_freq = 1;  // Prevent a div by ZERO
+  current_position =
+      (right_most * p0 + right_mid * p1 + left_mid * p2 + left_most * p3) /
+      total_freq;
 
-	current_position = (right_most*p0 + right_mid*p1 + left_mid*p2 + left_most*p3) / total_freq;
+  if (current_position < section_1_threshold) {
+    corrected_cur_pos = section_1_poln(current_position);
+  } else if (current_position < section_2_threshold) {
+    corrected_cur_pos = section_2_poln(current_position);
+  } else {
+    corrected_cur_pos = section_3_poln(current_position);
+  }
 
-	if(current_position < section_1_threshold){
-		corrected_cur_pos = section_1_poln(current_position);
-	} else if(current_position < section_2_threshold){
-		corrected_cur_pos = section_2_poln(current_position);
-	} else {
-		corrected_cur_pos = section_3_poln(current_position);
-	}
-
-	set_duty_cycle();
+  set_duty_cycle();
 }
 
-void set_duty_cycle(){
+void set_duty_cycle() {
+  duty_cycle = (corrected_cur_pos / max_position);
 
-	duty_cycle = (corrected_cur_pos/max_position);
+  if (duty_cycle > 1.0f) duty_cycle = 1.0f;
+  if (duty_cycle < 0.0f) duty_cycle = 0.0f;
 
-	if(duty_cycle > 1.0f)
-		duty_cycle = 1.0f;
-	if(duty_cycle < 0.0f)
-		duty_cycle = 0.0f;
-
-	TIM1->CCR1 = duty_cycle * (TIM1->ARR); // To the op-amp
-	TIM2->CCR1 = duty_cycle * (TIM2->ARR); // To the
+  TIM1->CCR1 = duty_cycle * (TIM1->ARR);  // To the op-amp
+  TIM2->CCR1 = duty_cycle * (TIM2->ARR);  // To the
 }
-
 
 /* USER CODE END PFP */
 
@@ -316,48 +302,44 @@ void set_duty_cycle(){
 // TESTING CODE
 #define MAX_DATA_POINTS 200
 struct SensorData {
-    uint32_t timestamp;
-    uint16_t out_duty_cycle;
-    float target_position;
-    double f_isum;
+  uint32_t timestamp;
+  uint16_t out_duty_cycle;
+  float target_position;
+  double f_isum;
 };
 
 struct SensorData sensor_data[MAX_DATA_POINTS];
 uint16_t data_index = 0;
 
 void collect_data(uint32_t timestamp) {
-    if (data_index < MAX_DATA_POINTS) {
-        sensor_data[data_index].timestamp = timestamp;
-        sensor_data[data_index].out_duty_cycle = current_position;
-        sensor_data[data_index].target_position = corrected_cur_pos;
-        sensor_data[data_index].f_isum = freq_sum/1000;
-        data_index++;
-    }
+  if (data_index < MAX_DATA_POINTS) {
+    sensor_data[data_index].timestamp = timestamp;
+    sensor_data[data_index].out_duty_cycle = current_position;
+    sensor_data[data_index].target_position = corrected_cur_pos;
+    sensor_data[data_index].f_isum = freq_sum / 1000;
+    data_index++;
+  }
 }
 
-int enough_samples(){
-	return (data_index >= MAX_DATA_POINTS);
-}
-
+int enough_samples() { return (data_index >= MAX_DATA_POINTS); }
 
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
   /* USER CODE BEGIN 1 */
 
-	// TESTING CODE
-
+  // TESTING CODE
 
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
+   */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -380,7 +362,8 @@ int main(void)
   /*
    * LDC config
    *
-   * Each channel current drive is set independently between 16 µA and 1.6 mA by setting the corresponding IDRIVEx register field
+   * Each channel current drive is set independently between 16 µA and 1.6 mA by
+   * setting the corresponding IDRIVEx register field
    *
    * */
 
@@ -400,16 +383,18 @@ int main(void)
 
   /* Resolution configuration */
   uint16_t max_res = 0xFFFF;
-  writeToMultipleRegisters(max_res, RCOUNT0, RCOUNT3); // Max Resolution
+  writeToMultipleRegisters(max_res, RCOUNT0, RCOUNT3);  // Max Resolution
 
   /* Setting the Settling Time */
   uint16_t settling_time = 0x0014;
-  writeToMultipleRegisters(settling_time, SETTLECOUNT0, SETTLECOUNT3); // Setting the Settling Time
+  writeToMultipleRegisters(settling_time, SETTLECOUNT0,
+                           SETTLECOUNT3);  // Setting the Settling Time
 
   /* CLOCK_DIVIDERS configuration */
   uint16_t clock_divider = 0x1001;
 
-  writeToMultipleRegisters(clock_divider, CLOCK_DIVIDERS0, CLOCK_DIVIDERS3); // CLOCK_DIVIDERS configuration
+  writeToMultipleRegisters(clock_divider, CLOCK_DIVIDERS0,
+                           CLOCK_DIVIDERS3);  // CLOCK_DIVIDERS configuration
 
   /* DRIVE CURRENT configuration */
   uint16_t IDRIVE = 0b11011 << 11;
@@ -417,7 +402,8 @@ int main(void)
   uint16_t DR_RESERVED = 0b000000 << 0;
   uint16_t drive_cur_reg = drive_cur_reg = IDRIVE | INIT_IDRIVE | DR_RESERVED;
 
-  writeToMultipleRegisters(drive_cur_reg, DRIVE_CURRENT0, DRIVE_CURRENT3); // DRIVE CURRENT configuration
+  writeToMultipleRegisters(drive_cur_reg, DRIVE_CURRENT0,
+                           DRIVE_CURRENT3);  // DRIVE CURRENT configuration
 
   /* Config register configuration */
   uint16_t SLEEP_MODE_EN = 0b1 << 13;
@@ -462,38 +448,43 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
-  while (1)
-  {
-	  __NOP();
-	  if(data_ready){
-		  // Read "STATUS" to de-assert the interrupt
-		  data_ready = 0;
-		  hal_status = HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, STATUS, I2C_MEMADD_SIZE_8BIT, buf, 2, HAL_MAX_DELAY);
-		  status_reg_read = (uint16_t)buf[0] << 8 | (buf[1]);
+  while (1) {
+    __NOP();
+    if (data_ready) {
+      // Read "STATUS" to de-assert the interrupt
+      data_ready = 0;
+      hal_status =
+          HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, STATUS, I2C_MEMADD_SIZE_8BIT,
+                           buf, 2, HAL_MAX_DELAY);
+      status_reg_read = (uint16_t)buf[0] << 8 | (buf[1]);
 
-		  f_sensor0 = Read_DataXbits(DATA0_MSB, DATA0_LSB) - (int32_t)f_sensor0_baseline;
-		  f_sensor1 = Read_DataXbits(DATA1_MSB, DATA1_LSB) - (int32_t)f_sensor1_baseline;
-		  f_sensor2 = Read_DataXbits(DATA2_MSB, DATA2_LSB) - (int32_t)f_sensor2_baseline;
-		  f_sensor3 = Read_DataXbits(DATA3_MSB, DATA3_LSB) - (int32_t)f_sensor3_baseline;
+      f_sensor0 =
+          Read_DataXbits(DATA0_MSB, DATA0_LSB) - (int32_t)f_sensor0_baseline;
+      f_sensor1 =
+          Read_DataXbits(DATA1_MSB, DATA1_LSB) - (int32_t)f_sensor1_baseline;
+      f_sensor2 =
+          Read_DataXbits(DATA2_MSB, DATA2_LSB) - (int32_t)f_sensor2_baseline;
+      f_sensor3 =
+          Read_DataXbits(DATA3_MSB, DATA3_LSB) - (int32_t)f_sensor3_baseline;
 
-		  f0 = f_sensor0;
-		  f1 = f_sensor1;
-		  f2 = f_sensor2;
-		  f3 = f_sensor3;
+      f0 = f_sensor0;
+      f1 = f_sensor1;
+      f2 = f_sensor2;
+      f3 = f_sensor3;
 
-		  position_decoder(f0,f1,f2,f3);
+      position_decoder(f0, f1, f2, f3);
 
-		  // TESTING CODE
-	      uint32_t current_time = HAL_GetTick();
-	      collect_data(current_time);
-	  }
+      // TESTING CODE
+      uint32_t current_time = HAL_GetTick();
+      collect_data(current_time);
+    }
 
-//	  if(enough_samples()){
-//		  while(1){
-//			  __NOP();
-//		  }
-//		  // break;
-//	  }
+    //	  if(enough_samples()){
+    //		  while(1){
+    //			  __NOP();
+    //		  }
+    //		  // break;
+    //	  }
 
     /* USER CODE END WHILE */
 
@@ -506,49 +497,44 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
+ * @brief System Clock Configuration
+ * @retval None
+ */
+void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                                RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
     Error_Handler();
   }
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C1_Init(void)
-{
-
+ * @brief I2C1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_I2C1_Init(void) {
   /* USER CODE BEGIN I2C1_Init 0 */
 
   /* USER CODE END I2C1_Init 0 */
@@ -565,24 +551,20 @@ static void MX_I2C1_Init(void)
   hi2c1.Init.OwnAddress2 = 0;
   hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
-
 }
 
 /**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM1_Init(void)
-{
-
+ * @brief TIM1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM1_Init(void) {
   /* USER CODE BEGIN TIM1_Init 0 */
 
   /* USER CODE END TIM1_Init 0 */
@@ -602,23 +584,19 @@ static void MX_TIM1_Init(void)
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
-  {
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK) {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
-  {
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK) {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-  {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
@@ -628,8 +606,7 @@ static void MX_TIM1_Init(void)
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
   sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
     Error_Handler();
   }
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
@@ -639,25 +616,21 @@ static void MX_TIM1_Init(void)
   sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
   sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
   sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
-  {
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM1_Init 2 */
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
-
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
-
+ * @brief TIM2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM2_Init(void) {
   /* USER CODE BEGIN TIM2_Init 0 */
 
   /* USER CODE END TIM2_Init 0 */
@@ -674,53 +647,45 @@ static void MX_TIM2_Init(void)
   htim2.Init.Period = 799;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK) {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_4) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
   HAL_TIM_MspPostInit(&htim2);
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_GPIO_Init(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -732,30 +697,30 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PC13 PC14 PC15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
+  GPIO_InitStruct.Pin = GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PD0 PD1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA4 PA5 PA6 PA7
                            PA9 PA10 PA11 PA12
                            PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7
-                          |GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11|GPIO_PIN_12
-                          |GPIO_PIN_15;
+  GPIO_InitStruct.Pin = GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 |
+                        GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 |
+                        GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB0 PB1 PB2 PB10
                            PB11 PB12 PB13 PB14
                            PB15 PB3 PB8 PB9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_10
-                          |GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14
-                          |GPIO_PIN_15|GPIO_PIN_3|GPIO_PIN_8|GPIO_PIN_9;
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_10 |
+                        GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 |
+                        GPIO_PIN_15 | GPIO_PIN_3 | GPIO_PIN_8 | GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
@@ -779,49 +744,46 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-  if(GPIO_Pin == GPIO_PIN_5) {
-	  data_ready = 1;
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+  if (GPIO_Pin == GPIO_PIN_5) {
+    data_ready = 1;
   } else {
-      __NOP();
+    __NOP();
   }
 }
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
+void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
-  while (1)
-  {
+  while (1) {
   }
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(uint8_t *file, uint32_t line)
-{
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
+void assert_failed(uint8_t* file, uint32_t line) {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* User can add his own implementation to report the file name and line
+     number, ex: printf("Wrong parameters value: file %s on line %d\r\n", file,
+     line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
