@@ -1,3 +1,5 @@
 Debug/
+.settings/
 ProxyArray Debug.launch
 dc.txt
+.vscode/settings.json
