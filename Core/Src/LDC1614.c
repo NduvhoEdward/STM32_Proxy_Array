@@ -47,11 +47,7 @@ static const uint8_t DRIVE_CURRENT1 = 0x1F;
 static const uint8_t DRIVE_CURRENT2 = 0x20;
 static const uint8_t DRIVE_CURRENT3 = 0x21;
 
-uint16_t rcountX;
-uint16_t clock_dividerX;
-uint16_t drive_currentX;
-uint16_t status_reg_read;
-uint16_t error_config_read;
+// Private functions
 
 void setBufferFromValue(uint8_t* buf, uint16_t value) {
   buf[0] = (value >> 8) & 0xFF;
@@ -121,7 +117,7 @@ int32_t Read_DataXbits(uint8_t msb_addr, uint8_t lsb_addr) {
   return f_sensor;
 }
 
-//
+// Public Functions
 
 void LDC1614_Init_Common_Config() {
   uint16_t RP_OVERRIDE_EN = 0b1 << 12;
@@ -139,17 +135,10 @@ void LDC1614_Init_Common_Config() {
 void LDC1614_WakeUP(void) {
   uint16_t SLEEP_MODE_EN = 0b1 << 13;
   // read register
-  // config_reg = readI2CRegister(CONFIG_ADDR);
   uint16_t config_reg = LDC1614_Read_Register(CONFIG_ADDR);
   // Clear the sleep mode bit to disable sleep mode
   CLEAR_BIT(config_reg, SLEEP_MODE_EN);
 
-  // Store it in the buffer for transmission
-  // buf[0] = (config_reg >> 8) & 0xFF;
-  // buf[1] = config_reg & 0xFF;
-
-  // Send the modified reg. to the LDC chip
-  // hal_status = writeI2CMem(buf, CONFIG_ADDR);
   LDC1614_Write_Register(CONFIG_ADDR, config_reg);
 }
 
@@ -163,18 +152,10 @@ void LDC1614_Interrupt_init() {
 void LDC1614_Sleep(void) {
   uint16_t SLEEP_MODE_EN = 0b1 << 13;
   // read register
-  // config_reg = readI2CRegister(CONFIG_ADDR);
   uint16_t config_reg = LDC1614_Read_Register(CONFIG_ADDR);
-
   // Clear the sleep mode bit to disable sleep mode
   SET_BIT(config_reg, SLEEP_MODE_EN);
 
-  // Store it in the buffer for transmission
-  // buf[0] = (config_reg >> 8) & 0xFF;
-  // buf[1] = config_reg & 0xFF;
-
-  // Send the modified reg. to the LDC chip
-  // hal_status = writeI2CMem(buf, CONFIG_ADDR);
   LDC1614_Write_Register(CONFIG_ADDR, config_reg);
 }
 

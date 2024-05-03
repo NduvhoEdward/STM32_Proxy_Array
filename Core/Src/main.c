@@ -50,10 +50,8 @@ TIM_HandleTypeDef htim2;
 /* USER CODE BEGIN PV */
 
 HAL_StatusTypeDef hal_status;
-// uint8_t buf[6];
 
 static int read_error = 0;
-static uint32_t f_ref = 43400000;
 int conv_resolution = 28;
 
 int64_t f_sensor0_baseline = 0;
@@ -94,6 +92,7 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
+
 /* USER CODE BEGIN PFP */
 void set_duty_cycle();
 
@@ -104,14 +103,10 @@ void calibrate() {
   while (iterations > 0) {
     __NOP();
     if (data_ready) {
-      f_sensor0_baseline +=
-          LDC1614_Read_SensorData(0);  // Read_DataXbits(DATA0_MSB, DATA0_LSB);
-      f_sensor1_baseline +=
-          LDC1614_Read_SensorData(1);  // Read_DataXbits(DATA1_MSB, DATA1_LSB);
-      f_sensor2_baseline +=
-          LDC1614_Read_SensorData(2);  // Read_DataXbits(DATA2_MSB, DATA2_LSB);
-      f_sensor3_baseline +=
-          LDC1614_Read_SensorData(3);  // Read_DataXbits(DATA3_MSB, DATA3_LSB);
+      f_sensor0_baseline += LDC1614_Read_SensorData(0);
+      f_sensor1_baseline += LDC1614_Read_SensorData(1);
+      f_sensor2_baseline += LDC1614_Read_SensorData(2);
+      f_sensor3_baseline += LDC1614_Read_SensorData(3);
 
       LDC1614_DeAssert_Interrupt();
       data_ready = 0;
@@ -270,11 +265,6 @@ int main(void) {
 
   uint16_t mux_config_reg = AUTOSCAN_EN | RR_SEQUENCE | RESERVED | DEGLITCH;
 
-  // Store it in the buffer for transmission
-  // buf[0] = (mux_config_reg >> 8) & 0xFF;
-  // buf[1] = mux_config_reg & 0xFF;
-  // Send the buffer over
-  // hal_status = writeI2CMem(buf, MUX_CONFIG_ADDR);
   LDC1614_Configure_MUX(mux_config_reg);
 
   /* Resolution configuration */
@@ -284,14 +274,10 @@ int main(void) {
 
   /* Setting the Settling Time */
   uint16_t settling_time = 0x0014;
-  // writeToMultipleRegisters(settling_time, SETTLECOUNT0,
-  //  SETTLECOUNT3);  // Setting the Settling Time
   LDC1614_Set_SettlingTime(settling_time);
 
   /* CLOCK_DIVIDERS configuration */
   uint16_t clock_divider = 0x1001;
-  // writeToMultipleRegisters(clock_divider, CLOCK_DIVIDERS0,
-  //                          CLOCK_DIVIDERS3);  // CLOCK_DIVIDERS configuration
   LDC1614_Set_ClockDividers(clock_divider);
 
   /* DRIVE CURRENT configuration */
@@ -300,54 +286,23 @@ int main(void) {
   uint16_t DR_RESERVED = 0b000000 << 0;
   uint16_t drive_cur_reg = drive_cur_reg = IDRIVE | INIT_IDRIVE | DR_RESERVED;
 
-  // writeToMultipleRegisters(drive_cur_reg, DRIVE_CURRENT0,
-  //                          DRIVE_CURRENT3);  // DRIVE CURRENT configuration
   LDC1614_Set_DriveCurrent(drive_cur_reg);
 
-  // buf[0] = (config_reg >> 8) & 0xFF;
-  // buf[1] = config_reg & 0xFF;
-  // hal_status = writeI2CMem(buf, CONFIG_ADDR);
-
-  /* USER CODE END 2 */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-
-  /* Read registers before looping */
-  // mux_config_reg = readI2CRegister(MUX_CONFIG_ADDR);
-  // config_reg = readI2CRegister(CONFIG_ADDR);
-  // rcountX = readI2CRegister(RCOUNT0);
-  // clock_dividerX = readI2CRegister(CLOCK_DIVIDERS0);
-  // drive_currentX = readI2CRegister(DRIVE_CURRENT0);
-
-  // status_reg_read = readI2CRegister(STATUS);
-  // error_config_read = readI2CRegister(ERROR_CONFIG);
-
-  // LDC1614_Sleep();
   LDC1614_Interrupt_init();
   LDC1614_Init_Common_Config();
 
   LDC1614_WakeUP();
 
-  config_reg = LDC1614_Config_Register();
-  error_reg = LDC1614_Error_Register();
-
   calibrate();
+
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
   while (1) {
     __NOP();
     if (data_ready) {
-      // Read "STATUS" to de-assert the interrupt
       data_ready = 0;
       LDC1614_DeAssert_Interrupt();
-      // hal_status =
-      //     HAL_I2C_Mem_Read(&hi2c1, LDC_I2C_ADDR, STATUS,
-      //     I2C_MEMADD_SIZE_8BIT,
-      //                      buf, 2, HAL_MAX_DELAY);
-
-      // status_reg_read = (uint16_t)buf[0] << 8 | (buf[1]);
 
       f_sensor0 = LDC1614_Read_SensorData(0) - (int32_t)f_sensor0_baseline;
       f_sensor1 = LDC1614_Read_SensorData(1) - (int32_t)f_sensor1_baseline;
@@ -365,13 +320,6 @@ int main(void) {
       uint32_t current_time = HAL_GetTick();
       collect_data(current_time);
     }
-
-    //	  if(enough_samples()){
-    //		  while(1){
-    //			  __NOP();
-    //		  }
-    //		  // break;
-    //	  }
 
     /* USER CODE END WHILE */
 
