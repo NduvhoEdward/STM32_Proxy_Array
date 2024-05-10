@@ -92,7 +92,6 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
-
 /* USER CODE BEGIN PFP */
 void set_duty_cycle();
 
@@ -277,12 +276,22 @@ int main(void) {
 
   LDC1614_WakeUP();
 
-  LDC1614_Calibrate();
+  if (HAL_GPIO_ReadPin(GPIOA, Calib_Trigger_Pin) == GPIO_PIN_RESET) {
+    // Calibrate the sensors
+    LDC1614_Calibrate();
+    __NOP();
+    __NOP();
+    __NOP();
+  }
   retrieve_calibration_data();
 
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
   while (1) {
     __NOP();
     if (data_ready) {
@@ -479,9 +488,6 @@ static void MX_TIM2_Init(void) {
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
-    Error_Handler();
-  }
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK) {
     Error_Handler();
   }
@@ -525,6 +531,12 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : Calib_Trigger_Pin */
+  GPIO_InitStruct.Pin = Calib_Trigger_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(Calib_Trigger_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA4 PA5 PA6 PA7
                            PA9 PA10 PA11 PA12
@@ -599,7 +611,7 @@ void Error_Handler(void) {
  * @param  line: assert_param error line source number
  * @retval None
  */
-void assert_failed(uint8_t* file, uint32_t line) {
+void assert_failed(uint8_t *file, uint32_t line) {
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line
      number, ex: printf("Wrong parameters value: file %s on line %d\r\n", file,

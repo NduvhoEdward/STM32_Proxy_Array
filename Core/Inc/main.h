@@ -59,6 +59,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define Calib_Trigger_Pin GPIO_PIN_0
+#define Calib_Trigger_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 
