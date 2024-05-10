@@ -54,10 +54,10 @@ HAL_StatusTypeDef hal_status;
 static int read_error = 0;
 int conv_resolution = 28;
 
-int64_t f_sensor0_baseline = 0;
-int64_t f_sensor1_baseline = 0;
-int64_t f_sensor2_baseline = 0;
-int64_t f_sensor3_baseline = 0;
+int32_t f_sensor0_baseline = 0;
+int32_t f_sensor1_baseline = 0;
+int32_t f_sensor2_baseline = 0;
+int32_t f_sensor3_baseline = 0;
 
 static int32_t f_sensor0 = 0;
 static int32_t f_sensor1 = 0;
@@ -78,7 +78,7 @@ float section_2_threshold = 39.3;
 float max_position = 0.0;
 float duty_cycle = 0;
 
-static int data_ready = 0;
+int data_ready = 0;
 
 // Debug vars
 uint16_t config_reg;
@@ -96,29 +96,16 @@ static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 void set_duty_cycle();
 
-void calibrate() {
-  int baselineReadings = 50;
-  int iterations = baselineReadings;
+void retrieve_calibration_data() {
+  // Read the calibration data from the flash
+  uint32_t flash_data[4];
+  // Flash_Read_Data(0x08010000, flash_data, 4);
+  LDC1614_Use_CalibrationData(flash_data);
 
-  while (iterations > 0) {
-    __NOP();
-    if (data_ready) {
-      f_sensor0_baseline += LDC1614_Read_SensorData(0);
-      f_sensor1_baseline += LDC1614_Read_SensorData(1);
-      f_sensor2_baseline += LDC1614_Read_SensorData(2);
-      f_sensor3_baseline += LDC1614_Read_SensorData(3);
-
-      LDC1614_DeAssert_Interrupt();
-      data_ready = 0;
-
-      iterations--;
-    }
-  }
-
-  f_sensor0_baseline /= baselineReadings;
-  f_sensor1_baseline /= baselineReadings;
-  f_sensor2_baseline /= baselineReadings;
-  f_sensor3_baseline /= baselineReadings;
+  f_sensor0_baseline = flash_data[0];
+  f_sensor1_baseline = flash_data[1];
+  f_sensor2_baseline = flash_data[2];
+  f_sensor3_baseline = flash_data[3];
 }
 
 double correct_neg_f(double f) {
@@ -143,9 +130,6 @@ double section_3_poln(double x) {
          4.2515465 * x * x * x - 208.51761 * x * x + 5104.0767 * x - 49840.312;
 }
 void position_decoder(double f0, double f1, double f2, double f3) {
-  // The right-most case is not resolved yet, when the metal goes beyond the
-  // last coil, and the values starts decreasing...
-
   double right_most = correct_neg_f(f3);
   double right_mid = correct_neg_f(f1);
   double left_mid = correct_neg_f(f2);
@@ -293,7 +277,8 @@ int main(void) {
 
   LDC1614_WakeUP();
 
-  calibrate();
+  LDC1614_Calibrate();
+  retrieve_calibration_data();
 
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
@@ -315,10 +300,10 @@ int main(void) {
       f3 = f_sensor3;
 
       position_decoder(f0, f1, f2, f3);
-
+      __NOP();
       // TESTING CODE
-      uint32_t current_time = HAL_GetTick();
-      collect_data(current_time);
+      //      uint32_t current_time = HAL_GetTick();
+      //      collect_data(current_time);
     }
 
     /* USER CODE END WHILE */

@@ -10,17 +10,20 @@
 
 #include <stdint.h>
 
+#include "flash_access.h"
 #include "stm32f1xx_hal.h"
 
 // Variables in the main.c file
 extern I2C_HandleTypeDef hi2c1;
 extern HAL_StatusTypeDef hal_status;
+extern int data_ready;
 
 void LDC1614_WakeUp();
 void LDC1614_Sleep();
 void LDC1614_Init_Common_Config();
 void LDC1614_DeAssert_Interrupt();
 void LDC1614_Interrupt_init();
+void LDC1614_Calibrate();
 
 uint16_t LDC1614_Error_Register();
 uint16_t LDC1614_Config_Register();

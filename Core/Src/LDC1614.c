@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 
+#include "flash_access.h"
 #include "stm32f1xx_hal.h"
 #include "stm32f1xx_hal_def.h"
 #include "stm32f1xx_hal_i2c.h"
@@ -205,4 +206,60 @@ int32_t LDC1614_Read_SensorData(uint8_t channel) {
   uint8_t msb_addr = DATA0_MSB + channel * 2;
   uint8_t lsb_addr = DATA0_LSB + channel * 2;
   return Read_DataXbits(msb_addr, lsb_addr);
+}
+
+/* Generates calibaration data */
+void LDC1614_Calibrate() {
+  int baselineReadings = 50;
+  int iterations = baselineReadings;
+
+  int64_t f_sensor0_baseline = 0;
+  int64_t f_sensor1_baseline = 0;
+  int64_t f_sensor2_baseline = 0;
+  int64_t f_sensor3_baseline = 0;
+
+  while (iterations > 0) {
+    __NOP();
+    if (data_ready) {
+      f_sensor0_baseline += LDC1614_Read_SensorData(0);
+      f_sensor1_baseline += LDC1614_Read_SensorData(1);
+      f_sensor2_baseline += LDC1614_Read_SensorData(2);
+      f_sensor3_baseline += LDC1614_Read_SensorData(3);
+
+      LDC1614_DeAssert_Interrupt();
+      data_ready = 0;
+
+      iterations--;
+    }
+  }
+
+  f_sensor0_baseline = (uint32_t)f_sensor0_baseline / baselineReadings;
+  f_sensor1_baseline = (uint32_t)f_sensor1_baseline / baselineReadings;
+  f_sensor2_baseline = (uint32_t)f_sensor2_baseline / baselineReadings;
+  f_sensor3_baseline = (uint32_t)f_sensor3_baseline / baselineReadings;
+
+  uint32_t stm32f103_page_64_start_addr = 0x08010000;
+  uint16_t num_of_sensors = 4;
+  uint32_t Data[] = {f_sensor0_baseline, f_sensor1_baseline, f_sensor2_baseline,
+                     f_sensor3_baseline};
+
+  uint32_t StartPageAddress = stm32f103_page_64_start_addr;
+
+  Flash_Write_Data(StartPageAddress, Data, num_of_sensors);
+  __NOP();
+  __NOP();
+  __NOP();
+}
+
+void LDC1614_Use_CalibrationData(uint32_t* Data) {
+  uint32_t stm32f103_page_64_start_addr = 0x08010000;
+  uint16_t num_of_sensors = 4;
+  // uint32_t Data[4];
+
+  uint32_t StartPageAddress = stm32f103_page_64_start_addr;
+
+  Flash_Read_Data(StartPageAddress, Data, num_of_sensors);
+  __NOP();
+  __NOP();
+  __NOP();
 }
